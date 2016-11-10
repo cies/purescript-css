@@ -58,39 +58,72 @@ assertEqual x y = unless (x == y) <<< throwException <<< error $ "Assertion fail
 
 
 
+-- old attempts
+
+-- class Generic a <= CssString a where
+--   toCssString :: a -> String
+
+-- instance cssStringCssClass :: CssString CssClass where
+--   toCssString = spineCase <<< predicateName
+
+-- instance cssStringCssId :: CssString CssId where
+--   toCssString = spineCase <<< predicateName
+
+-- toId :: CssId -> Predicate
+-- toId = Id <<< toCssString  -- spineCase <<< predicateName
+
+-- toClass :: CssClass -> Predicate
+-- toClass = Class <<< spineCase <<< predicateName
+
+----------
+
+
+
 data CssId = TheWrapper | TheContent
 derive instance genericCssId :: Generic CssId
 
 data CssClass = WrapperFTW | SomeContent
 derive instance genericCssClass :: Generic CssClass
 
--- instance showCssClass :: Show CssClass where
---   show = gShow
+class Generic a <= CssPredicate a where
+  toPredicate :: a -> Predicate
 
+instance cssPredicateCssClass :: CssPredicate CssClass where
+  toPredicate = Class <<< spineCase <<< predicateName
 
-toId :: CssId -> Predicate
-toId = Id <<< spineCase <<< predicateName
+instance cssPredicateCssId :: CssPredicate CssId where
+  toPredicate = Id <<< spineCase <<< predicateName
 
-toClass :: CssClass -> Predicate
-toClass = Class <<< spineCase <<< predicateName
+sel :: forall a. (CssPredicate a) => a -> Selector
+sel s = Selector (Refinement [toPredicate s]) Star
 
-toClassSel :: CssClass -> Selector
-toClassSel c = Selector (Refinement [toClass c]) Star
+idSel :: CssId -> Selector
+idSel i = sel i
+
+classSel :: CssClass -> Selector
+classSel c = sel c
 
 spineCase :: String -> String
 spineCase = drop 1 <<< toLower <<< replace matchCaps "-$&"
+  where
+    matchCaps :: Regex
+    matchCaps = unsafePartial fromRight $ regex "[A-Z]" (parseFlags "g")
 
 predicateName :: forall a. (Generic a) => a -> String
-predicateName = fromMaybe "undefined" <<< last <<< split "." <<< gShow
-
-matchCaps :: Regex
-matchCaps = unsafePartial $ fromRight $ regex "[A-Z]" (parseFlags "g")
+predicateName = fromMaybe "PREDICATE-ERROR" <<< last <<< split "." <<< gShow
 
 
 example6 :: Rendered
 example6 = render do
-  toClassSel WrapperFTW ? do
+  classSel WrapperFTW ? do
     display block
+
+example7 :: Rendered
+example7 = render do
+  idSel TheWrapper ? do
+    display block
+
+
 
 
 main :: Eff (err :: EXCEPTION) Unit
@@ -99,9 +132,12 @@ main = do
   selector (Selector (Refinement [toClass WrapperFTW]) Star) `assertEqual` ".wrapper-f-t-w"
   renderedSheet example6 `assertEqual` Just ".wrapper-f-t-w { display: block }\n"
 
+  selector (Selector (Refinement [toId TheWrapper]) Star) `assertEqual` "#the-wrapper"
+  renderedSheet example7 `assertEqual` Just "#the-wrapper { display: block }\n"
+
   renderedInline example1 `assertEqual` Just "color: hsl(0.0, 100.0%, 50.0%); display: block"
   renderedInline example2 `assertEqual` Just "display: inline-block"
-  renderedInline example3 `assertEqual` Just "border: dashed 2.0px hsl(240.0, 100.0%, 50.0%) "
+  renderedInline example3 `assertEqual` Just "border: dashed 2.0px hsl(240.0, 100.0%, 50.0%)"
 
   selector (Selector (Refinement [Id "test"]) Star) `assertEqual` "#test"
 
