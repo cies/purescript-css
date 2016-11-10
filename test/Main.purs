@@ -78,22 +78,38 @@ assertEqual x y = unless (x == y) <<< throwException <<< error $ "Assertion fail
 ----------
 
 
-
-data CssId = TheWrapper | TheContent
-derive instance genericCssId :: Generic CssId
-
-data CssClass = WrapperFTW | SomeContent
-derive instance genericCssClass :: Generic CssClass
+-- The two data types containing the ids and classes respectively.
+-- Instances of Generic so we can get their type as a String at runtime.
+-- Instances od CssPredicate so we can get a CSS formatted Predicate,
+-- which is a wrapped String.
 
 class Generic a <= CssPredicate a where
   toPredicate :: a -> Predicate
 
-instance cssPredicateCssClass :: CssPredicate CssClass where
-  toPredicate = Class <<< spineCase <<< predicateName
-
+data CssId = TheWrapper | TheContent
+derive instance genericCssId :: Generic CssId
 instance cssPredicateCssId :: CssPredicate CssId where
-  toPredicate = Id <<< spineCase <<< predicateName
+  toPredicate = Id <<< spineCase <<< typeAsString
 
+data CssClass = ButtonSEO | Active
+derive instance genericCssClass :: Generic CssClass
+instance cssPredicateCssClass :: CssPredicate CssClass where
+  toPredicate = Class <<< spineCase <<< typeAsString
+
+
+-- | Turns "ButtonSEO" into "button-s-e-o".
+spineCase :: String -> String
+spineCase = drop 1 <<< toLower <<< replace matchCaps "-$&"
+  where
+    matchCaps :: Regex
+    matchCaps = unsafePartial fromRight $ regex "[A-Z]" (parseFlags "g")
+
+-- | Indicate error (instead of empty String), in case it fails.
+typeAsString :: forall a. (Generic a) => a -> String
+typeAsString = fromMaybe "PREDICATE-ERROR" <<< last <<< split "." <<< gShow
+
+
+-- | Turn a CssClass or CssId into a Selector.
 sel :: forall a. (CssPredicate a) => a -> Selector
 sel s = Selector (Refinement [toPredicate s]) Star
 
@@ -103,21 +119,14 @@ idSel i = sel i
 classSel :: CssClass -> Selector
 classSel c = sel c
 
-spineCase :: String -> String
-spineCase = drop 1 <<< toLower <<< replace matchCaps "-$&"
-  where
-    matchCaps :: Regex
-    matchCaps = unsafePartial fromRight $ regex "[A-Z]" (parseFlags "g")
 
-predicateName :: forall a. (Generic a) => a -> String
-predicateName = fromMaybe "PREDICATE-ERROR" <<< last <<< split "." <<< gShow
-
-
+-- | This mimics the "#button-s-e-o" notation
 example6 :: Rendered
 example6 = render do
-  classSel WrapperFTW ? do
+  classSel ButtonSEO ? do
     display block
 
+-- | This mimics the ".the-wrapper" notation
 example7 :: Rendered
 example7 = render do
   idSel TheWrapper ? do
@@ -129,11 +138,15 @@ example7 = render do
 main :: Eff (err :: EXCEPTION) Unit
 main = do
 
-  selector (Selector (Refinement [toClass WrapperFTW]) Star) `assertEqual` ".wrapper-f-t-w"
-  renderedSheet example6 `assertEqual` Just ".wrapper-f-t-w { display: block }\n"
+  selector (Selector (Refinement [toPredicate ButtonSEO]) Star) `assertEqual` ".button-s-e-o"
+  selector (classSel ButtonSEO) `assertEqual` ".button-s-e-o"
+  renderedSheet example6 `assertEqual` Just ".button-s-e-o { display: block }\n"
 
-  selector (Selector (Refinement [toId TheWrapper]) Star) `assertEqual` "#the-wrapper"
+  selector (Selector (Refinement [toPredicate TheWrapper]) Star) `assertEqual` "#the-wrapper"
+  selector (idSel TheWrapper) `assertEqual` "#the-wrapper"
   renderedSheet example7 `assertEqual` Just "#the-wrapper { display: block }\n"
+
+
 
   renderedInline example1 `assertEqual` Just "color: hsl(0.0, 100.0%, 50.0%); display: block"
   renderedInline example2 `assertEqual` Just "display: inline-block"
